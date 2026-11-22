@@ -3,6 +3,7 @@ from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 
 MODEL = "Qwen/Qwen2.5-7B-Instruct"
+GPU_MEMORY = 0.85  # share of the GPU for vLLM; flow_grpo lowers it to leave room for the trainable model
 _engine = None
 _lora_ids = {}  # vLLM needs a unique integer id per adapter path
 
@@ -14,7 +15,7 @@ def generate(chats, temperature=0.0, max_tokens=2048, lora=None):
     """
     global _engine
     if _engine is None:
-        _engine = LLM(MODEL, enable_lora=True, max_lora_rank=16, gpu_memory_utilization=0.85)
+        _engine = LLM(MODEL, enable_lora=True, max_lora_rank=16, gpu_memory_utilization=GPU_MEMORY)
     chats = [[{"role": "user", "content": c}] if isinstance(c, str) else c for c in chats]
     request = None
     if lora:
