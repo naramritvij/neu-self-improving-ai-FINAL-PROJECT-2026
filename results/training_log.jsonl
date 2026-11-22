@@ -1,0 +1,15 @@
+{"step": 1, "reward": 0.515625, "samples": 156, "turns": 1.65625, "seconds": 373}
+{"step": 2, "reward": 0.3984375, "samples": 154, "turns": 1.90625, "seconds": 229}
+{"step": 3, "reward": 0.53125, "samples": 125, "turns": 2.015625, "seconds": 215}
+{"step": 4, "reward": 0.4765625, "samples": 83, "turns": 1.90625, "seconds": 203}
+{"step": 5, "reward": 0.4609375, "samples": 76, "turns": 1.9296875, "seconds": 197}
+{"step": 6, "reward": 0.5859375, "samples": 102, "turns": 2.1328125, "seconds": 213}
+{"step": 7, "reward": 0.375, "samples": 109, "turns": 2.09375, "seconds": 224}
+{"step": 8, "reward": 0.3984375, "samples": 124, "turns": 2.4140625, "seconds": 250}
+{"step": 9, "reward": 0.421875, "samples": 88, "turns": 1.9609375, "seconds": 196}
+{"step": 10, "reward": 0.6328125, "samples": 120, "turns": 2.015625, "seconds": 223}
+{"step": 11, "reward": 0.625, "samples": 115, "turns": 1.8828125, "seconds": 196}
+{"step": 12, "reward": 0.5625, "samples": 128, "turns": 1.7890625, "seconds": 206}
+{"step": 13, "reward": 0.390625, "samples": 176, "turns": 2.2109375, "seconds": 242}
+{"step": 14, "reward": 0.578125, "samples": 94, "turns": 1.734375, "seconds": 177}
+{"step": 15, "reward": 0.6171875, "samples": 91, "turns": 1.9140625, "seconds": 210}

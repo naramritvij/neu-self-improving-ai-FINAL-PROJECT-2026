@@ -6,8 +6,8 @@ Graded on **simplicity**: every line must be explainable in the walkthrough.
 | Row | Paper | Ours |
 |---|---|---|
 | Qwen-2.5-7B-Instruct (direct answer, no tools) | 12.0 | 14.9 ± 0.8 ¹ |
-| AgentFlow (frozen Qwen planner) | 58.4 | – |
-| AgentFlow w/ Flow-GRPO (LoRA planner) | 69.6 | – |
+| AgentFlow (frozen Qwen planner) | 58.4 | 40.5 ± 2.6 |
+| AgentFlow w/ Flow-GRPO (LoRA planner) | 69.6 | 43.5 ± 2.1 |
 
 ¹ `results/direct.json`, 3 trials, judged by Qwen2.5-7B. The 7B judge is a bit lenient: in trial 1, 2 of its 18 "correct" verdicts were wrong ("1837" for "20 June 1837", and the son's name instead of the father's). With a strict judge this row would be about 13.
 
@@ -16,8 +16,8 @@ Graded on **simplicity**: every line must be explainable in the walkthrough.
 - **Models:** Qwen2.5-7B-Instruct for every module and tool, served with vLLM on Modal. Only the planner gets a LoRA adapter.
 - **Loop:** planner → executor → verifier, repeated until the verifier says STOP or the turn limit is hit (10 at eval, 3 in training), then the solution generator answers. Prompts are copied from paper §E.1.
 - **Batching:** all questions advance through the loop together, one batched vLLM call per module per turn. That's what makes 125 questions × 10 turns finish in minutes.
-- **Tools:** Base Generator, Python Coder, Wikipedia Search and Google Search (§E.2). We drop Web Search and the OpenAI-embedding RAG to keep the code small.
-- **Judge:** the paper's analyze-then-judge prompt (§E.3). The paper uses GPT-4o; we use Qwen2.5-7B unless we get an OpenAI key. *(decision pending)*
+- **Tools:** Base Generator, Python Coder and Wikipedia Search (§E.2). Google Search needs a paid key and Web Search needs OpenAI embeddings, so both are dropped. Wikipedia Search runs over the Search-R1 Wikipedia-2018 dump (E5 + FAISS) inside the container, because the live API rate-limits Modal (HTTP 429 after ~10 requests).
+- **Judge:** the paper's analyze-then-judge prompt (§E.3), run by Qwen2.5-7B instead of GPT-4o (no OpenAI key).
 - **Flow-GRPO (§3.2):** for each question, run G=8 rollouts. Give every planner turn the trajectory's 0/1 reward, normalize advantages within the group (Eq. 7), and do one policy-gradient step on the LoRA weights plus a KL penalty (β=0.001) to the base model. With one update per batch the PPO ratio is 1, so the clip term drops out. Learning rate, temperature and max turns follow §C.1.
 - **Training data:** Search-R1's NQ+HotpotQA training split (paper mixes in DeepMath, but Part 1 only evaluates Bamboogle). Never Bamboogle.
 - **Eval:** 125 questions, 3 trials, mean ± std, like the paper.

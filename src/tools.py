@@ -2,14 +2,17 @@
 
 We keep Base Generator, Python Coder and Wikipedia Search. Google Search (paid API key) and Web Search
 (OpenAI embeddings) are dropped to keep the code small; Bamboogle answers come from Wikipedia.
+
+Wikipedia Search runs inside our container over the Wikipedia-2018 dump that Search-R1 uses (21M passages,
+E5 embeddings, FAISS index), because the live Wikipedia API rate-limits Modal's servers (HTTP 429).
 """
 import json
 import re
 import subprocess
 import sys
-import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+import torch
 
 from src.llm import generate
 
@@ -25,13 +28,14 @@ METADATA = {  # what the planner and executor see about each tool
         "limitation": "Standard library only, no internet, 10-second limit. Put every needed number in the query.",
     },
     "Wikipedia_RAG_Search_Tool": {
-        "description": "Searches Wikipedia and returns the information from the most relevant pages that answers the query.",
+        "description": "Searches Wikipedia and returns the information from the most relevant passages that answers the query.",
         "input": 'query: str, e.g. tool.execute(query="Who founded Citibank and in what year?")',
-        "limitation": "Wikipedia only. Use specific queries about one entity or fact at a time.",
+        "limitation": "Wikipedia only (2018 snapshot). Use specific queries about one entity or fact at a time.",
     },
 }
 TOOL_NAMES = list(METADATA)
-USER_AGENT = "agentflow-course-replication/0.1 (university course project)"  # Wikipedia asks API clients for one
+WIKI = "/retrieval/wiki18-e5"  # Modal volume: e5_Flat.index, wiki-18.jsonl (+ byte offsets), e5-base-v2 encoder
+_wiki = None
 
 
 def base_generator(queries):
@@ -56,35 +60,37 @@ def python_coder(queries):
     return [f"Code:\n{code}\nOutput:\n{out}" for code, out in zip(codes, outputs)]
 
 
-def wiki_api(**params):
-    url = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode({**params, "format": "json"})
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=30) as r:
-        return json.load(r)
+def wiki_passages(queries, k=5):
+    """Top-k Wikipedia passages per query: E5 query embedding -> inner-product search over all passages."""
+    global _wiki
+    if _wiki is None:  # load once: the index is 65 GB in RAM
+        import faiss
+        import numpy as np
+        from transformers import AutoModel, AutoTokenizer
+        _wiki = (faiss.read_index(f"{WIKI}/e5_Flat.index"),
+                 np.memmap(f"{WIKI}/wiki-18.jsonl.offsets", dtype="<u8", mode="r"),  # byte offset of each passage
+                 open(f"{WIKI}/wiki-18.jsonl", "rb"),
+                 AutoTokenizer.from_pretrained(f"{WIKI}/e5-base-v2"),
+                 AutoModel.from_pretrained(f"{WIKI}/e5-base-v2").cuda().eval())
+    index, offsets, corpus, tok, encoder = _wiki
+    with torch.no_grad():  # E5: "query: " prefix, mean-pooled, normalized
+        x = tok(["query: " + q for q in queries], padding=True, truncation=True, max_length=256, return_tensors="pt").to("cuda")
+        h = encoder(**x).last_hidden_state.masked_fill(~x.attention_mask[..., None].bool(), 0)
+        emb = torch.nn.functional.normalize(h.sum(1) / x.attention_mask.sum(1)[:, None], dim=-1)
+    _, ids = index.search(emb.cpu().numpy(), k)
 
-
-def wiki_passages(query, pages=2, paragraphs=4):
-    """Top search hits; from each page keep the intro plus the paragraphs sharing the most words with the query."""
-    try:
-        hits = wiki_api(action="query", list="search", srsearch=query, srlimit=pages)["query"]["search"]
-        words = set(re.findall(r"\w+", query.lower()))
-        passages = []
-        for hit in hits:
-            page = wiki_api(action="query", prop="extracts", explaintext=1, titles=hit["title"])["query"]["pages"]
-            paras = [p for p in next(iter(page.values())).get("extract", "").split("\n") if len(p) > 40]
-            best = sorted(paras[1:], key=lambda p: -len(words & set(re.findall(r"\w+", p.lower()))))[:paragraphs]
-            passages.append(f"[{hit['title']}]\n" + "\n".join(paras[:1] + best)[:3000])
-        return "\n\n".join(passages) or "No Wikipedia pages found."
-    except Exception as e:  # network errors become an observation the planner can react to
-        return f"Wikipedia error: {e}"
+    def passage(i):
+        corpus.seek(int(offsets[i]))
+        return json.loads(corpus.readline())["contents"]
+    return ["\n\n".join(passage(i) for i in row if i >= 0) for row in ids]
 
 
 def wikipedia_search(queries):
-    with ThreadPoolExecutor(8) as pool:
-        found = list(pool.map(wiki_passages, queries))
-    prompts = [f"Using only the Wikipedia excerpts below, answer the query. If they do not contain the answer, say so.\n\n"
-               f"Query: {q}\n\nExcerpts:\n{text}" for q, text in zip(queries, found)]
+    found = wiki_passages(queries)
+    prompts = [f"Using only the Wikipedia passages below, answer the query. If they do not contain the answer, say so.\n\n"
+               f"Query: {q}\n\nPassages:\n{text}" for q, text in zip(queries, found)]
     answers = generate(prompts, temperature=0.0, max_tokens=512)
-    titles = [re.findall(r"^\[(.*)\]$", text, re.MULTILINE) for text in found]
+    titles = [re.findall(r'^"(.*?)"$', text, re.MULTILINE) for text in found]  # each passage starts with "Title"
     return [f"Pages: {t}\nRetrieved information: {a}" for t, a in zip(titles, answers)]
 
 
